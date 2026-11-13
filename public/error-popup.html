@@ -1,0 +1,145 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>On Start Up - Process failed</title>
+  <style>
+    :root {
+      --bg:#0e1117; --panel:#151a23; --panel2:#1a2130; --border:#26303f;
+      --text:#d7dee9; --muted:#7c8899; --accent:#4c8dff; --accent2:#2f6fe0; --red:#ff6b6b;
+      --mono: "Cascadia Code","JetBrains Mono",Consolas,"Courier New",monospace;
+    }
+    * { box-sizing: border-box; }
+    html, body { height: 100%; margin: 0; }
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
+      font-size: 13px;
+      overflow: hidden;
+      user-select: none;
+    }
+    .wrap { height: 100%; display: flex; flex-direction: column; padding: 18px; gap: 12px; }
+    h2 { margin: 0; font-size: 16px; font-weight: 600; }
+    .name { display: flex; align-items: center; gap: 8px; color: var(--red); min-width: 0; }
+    .name strong {
+      color: var(--text); font-size: 13px; font-weight: 600;
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
+    .code {
+      margin-left: auto; flex-shrink: 0; padding: 2px 8px; border-radius: 999px;
+      background: rgba(255,107,107,0.12); border: 1px solid rgba(255,107,107,0.4);
+      color: var(--red); font-family: var(--mono); font-size: 11px;
+    }
+    .out {
+      margin: 0; padding: 10px 12px; max-height: 170px; overflow: auto;
+      background: #0b0f16; border: 1px solid var(--border); border-radius: 8px;
+      color: #ff9b9b; font-family: var(--mono); font-size: 11.5px; line-height: 1.55;
+      white-space: pre-wrap; word-break: break-word; user-select: text;
+    }
+    .msg { min-height: 18px; font-size: 12px; color: var(--muted); }
+    .msg.err { color: var(--red); }
+    .actions {
+      margin-top: auto; display: flex; justify-content: flex-end; gap: 8px;
+      padding-top: 10px; border-top: 1px solid var(--border);
+    }
+    .btn {
+      padding: 6px 12px; border-radius: 6px; border: 1px solid var(--border);
+      background: var(--panel2); color: var(--text); font-size: 12px; cursor: pointer;
+      font-family: inherit;
+    }
+    .btn:hover { background: #222c3e; }
+    .btn.primary { background: var(--accent2); border-color: var(--accent2); color: #fff; font-weight: 600; }
+    .btn.primary:hover { background: var(--accent); border-color: var(--accent); }
+    .btn:disabled { opacity: 0.5; cursor: default; }
+    .icon { width: 16px; height: 16px; flex-shrink: 0; stroke: currentColor; fill: none; stroke-width: 2; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h2>Process failed</h2>
+    <div class="name">
+      <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l7 3v5c0 5-3.5 8.5-7 10-3.5-1.5-7-5-7-10V6l7-3z"/><path d="M9 12l2 2 4-4"/></svg>
+      <strong id="name">Process</strong>
+      <span class="code" id="code">exit code ?</span>
+    </div>
+    <pre class="out" id="out" style="display:none"></pre>
+    <div id="msg" class="msg"></div>
+    <div class="actions">
+      <button id="close" class="btn" type="button">Close</button>
+      <button id="stop" class="btn" type="button">Stop future runs</button>
+      <button id="rerun" class="btn primary" type="button">Rerun</button>
+    </div>
+  </div>
+  <script>
+    (function () {
+      function params() {
+        var s = location.search || "";
+        if (s.charAt(0) === "?") s = s.slice(1);
+        var p = new URLSearchParams(s);
+        if (p.get("id")) return p;
+        var h = location.hash || "";
+        if (h.charAt(0) === "#") h = h.slice(1);
+        return new URLSearchParams(h);
+      }
+      var p = params();
+      var id = p.get("id") || "";
+      var name = p.get("name") || "Process";
+      var code = p.get("code");
+      var lines = p.get("lines") || "";
+      var port = p.get("port") || "46231";
+
+      document.getElementById("name").textContent = name;
+      document.getElementById("code").textContent = "exit code " + (code != null && code !== "" ? code : "?");
+      if (lines) {
+        var out = document.getElementById("out");
+        out.textContent = lines;
+        out.style.display = "block";
+      }
+
+      var msg = document.getElementById("msg");
+      function setMsg(t, bad) { msg.textContent = t || ""; msg.className = "msg" + (bad ? " err" : ""); }
+      function closeWin() { try { window.close(); } catch (e) {} }
+      var base = "http://127.0.0.1:" + port;
+
+      document.getElementById("close").onclick = closeWin;
+      document.getElementById("rerun").onclick = async function () {
+        if (!id) return;
+        try {
+          setMsg("Starting...");
+          var r = await fetch(base + "/api/start", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ id: id })
+          });
+          if (!r.ok) throw new Error(await r.text());
+          closeWin();
+        } catch (e) { setMsg(String(e && e.message ? e.message : e), true); }
+      };
+      document.getElementById("stop").onclick = async function () {
+        if (!id) return;
+        try {
+          setMsg("Updating...");
+          var s = await (await fetch(base + "/api/state")).json();
+          var entries = s && s.entries ? s.entries : [];
+          var entry = null;
+          for (var i = 0; i < entries.length; i++) { if (entries[i].id === id) { entry = entries[i]; break; } }
+          if (entry) {
+            entry.errorPolicy = "stopRuns";
+            entry.halted = true;
+            var r = await fetch(base + "/api/entries", {
+              method: "PUT",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ entry: entry })
+            });
+            if (!r.ok) throw new Error(await r.text());
+          }
+          closeWin();
+        } catch (e) { setMsg(String(e && e.message ? e.message : e), true); }
+      };
+      window.addEventListener("keydown", function (e) { if (e.key === "Escape") closeWin(); });
+    })();
+  </script>
+</body>
+</html>

@@ -1,0 +1,37 @@
+#!/usr/bin/env bash
+#
+# pre-commit — keep Rust and TypeScript code clean.
+#
+# Runs checks only when the relevant files are staged, so other commits stay
+# instant. Fast checks only — tests are intentionally NOT here. Bypass with:
+#   git commit --no-verify
+#
+# Enabled via `git config core.hooksPath .githooks` (scripts/setup-hooks.sh does this).
+
+set -euo pipefail
+
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$REPO_ROOT"
+
+say()  { printf '\033[1;36m▶ %s\033[0m\n' "$*"; }
+fail() { printf '\033[1;31m✗ %s\033[0m\n' "$*" >&2; exit 1; }
+
+STAGED="$(git diff --cached --name-only --diff-filter=ACM || true)"
+
+# Rust checks — only when Rust sources (or Cargo manifest/lock) are staged.
+if printf '%s\n' "$STAGED" | grep -qE '\.rs$|^Cargo\.(toml|lock)$'; then
+  say "pre-commit: rustfmt"
+  cargo fmt --check || fail "Unformatted code. Run:  cargo fmt"
+
+  say "pre-commit: clippy"
+  cargo clippy --workspace --all-targets -- -D warnings \
+    || fail "Clippy found issues. Fix them, or bypass this once with:  git commit --no-verify"
+fi
+
+# TypeScript checks — only when frontend sources are staged.
+if printf '%s\n' "$STAGED" | grep -qE '^src/.*\.(ts|tsx)$'; then
+  say "pre-commit: tsc"
+  bunx tsc --noEmit || fail "TypeScript errors found."
+fi
+
+say "pre-commit: OK"

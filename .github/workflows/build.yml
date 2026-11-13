@@ -1,0 +1,72 @@
+name: Build
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    name: Build ${{ matrix.target }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Windows
+          - target: x86_64-pc-windows-msvc
+            os: windows-latest
+            artifact: on-start-up-windows-x86_64
+          # Linux
+          - target: x86_64-unknown-linux-gnu
+            os: ubuntu-latest
+            artifact: on-start-up-linux-x86_64
+          # macOS
+          - target: aarch64-apple-darwin
+            os: macos-latest
+            artifact: on-start-up-macos-aarch64
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Install Bun
+        uses: oven-sh/setup-bun@v2
+
+      - name: Install Linux dependencies (Tauri)
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev libssl-dev libxdo-dev patchelf
+
+      - name: Build
+        run: cargo xtask build --release
+
+      - name: Stage artifact (Windows)
+        if: matrix.os == 'windows-latest'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path dist | Out-Null
+          Copy-Item target/release/on-start-up.exe, target/release/on-start-up-server.exe, target/release/on-start-up-error-popup.exe, README.md, LICENSE-MIT, LICENSE-APACHE -Destination dist
+
+      - name: Stage artifact (Unix)
+        if: matrix.os != 'windows-latest'
+        shell: bash
+        run: |
+          mkdir -p dist
+          cp target/release/on-start-up target/release/on-start-up-server target/release/on-start-up-error-popup README.md LICENSE-MIT LICENSE-APACHE dist/
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ matrix.artifact }}
+          path: dist
+          if-no-files-found: error
